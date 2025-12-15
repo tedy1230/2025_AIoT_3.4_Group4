@@ -1,1 +1,283 @@
-# 2025_AIoT_3.4
+# Hour 4：Edge AI 實戰 — COCO / YOLO / esp-dl 與模型部署
+（課程時間：60 分鐘）
+
+---
+
+## 一、本小時課程目標（Learning Objectives）
+
+完成本小時課程後，學生應能：
+
+- 理解 **Edge AI 與傳統 AI 在部署上的根本差異**
+- 清楚分辨「模型檔案」在不同階段的型態與用途
+- 看懂 **COCO / YOLO 在 ESP32-P4 上的實際程式碼**
+- 理解 **esp-dl 與 espdl 模型格式的角色**
+- 能說明 ONNX → espdl 的完整生成流程與指令
+
+---
+
+## 二、Edge AI 不是「把模型丟進來跑」
+
+在 PC / Server 上，AI 流程通常是：
+
+```
+Dataset → Training → Model → Inference
+```
+
+在 AIoT / Edge AI 上，實際流程是：
+
+```
+Dataset
+  ↓
+Training (PyTorch)
+  ↓
+ONNX（交換格式）
+  ↓
+量化 / 編譯（esp-dl）
+  ↓
+espdl（部署格式）
+  ↓
+MCU Runtime
+```
+
+> **部署流程本身，就是 Edge AI 的一半難度。**
+
+---
+
+## 三、本專案使用的 Edge AI 技術堆疊
+
+### 3.1 AI 模型：YOLO11n（COCO）
+
+- 任務：Object Detection
+- 資料集：COCO
+- 模型特性：
+  - 輕量化
+  - 適合量化
+  - 可在 MCU 上即時推論
+
+---
+
+### 3.2 AI Runtime：esp-dl
+
+- Espressif 官方 Edge AI Runtime
+- 提供：
+  - 模型載入
+  - Preprocess / Postprocess
+  - 記憶體管理
+
+---
+
+## 四、COCO Detect 模組程式碼導讀（核心）
+
+### 4.1 模組位置與檔案
+
+**檔案位置：**
+- `components/coco_detect/coco_detect.cpp`
+- `components/coco_detect/coco_detect.hpp`
+
+**角色定位：**
+- 封裝 YOLO11n 模型
+- 對 App 提供「簡單 API」
+
+---
+
+### 4.2 COCODetect 類別（封裝層）
+
+```cpp
+COCODetect::COCODetect(model_type_t model_type)
+```
+
+**說明：**
+- App 只需選模型類型
+- 不需知道模型檔案路徑
+- 不需知道模型存放位置
+
+> 這是「AI Service Layer」的概念。
+
+---
+
+### 4.3 模型載入（dl::Model）
+
+```cpp
+m_model = new dl::Model(
+    path,
+    model_name,
+    model_location,
+    0,
+    dl::MEMORY_MANAGER_GREEDY,
+    nullptr,
+    param_copy
+);
+```
+
+**關鍵說明：**
+- `path`：Flash / Partition / SD
+- `param_copy`：是否複製參數到 PSRAM
+- 會依 ESP32-P4 記憶體條件動態決定
+
+---
+
+### 4.4 為什麼呼叫 minimize()
+
+```cpp
+m_model->minimize();
+```
+
+**用途：**
+- 釋放初始化用 buffer
+- 降低 Runtime 記憶體占用
+
+> 在 Edge AI 中，「不用的記憶體一定要釋放」。
+
+---
+
+## 五、Preprocess 與 Postprocess（AI 成敗關鍵）
+
+### 5.1 Preprocess（影像前處理）
+
+在 `coco_detect.cpp` 中：
+
+```cpp
+m_image_preprocessor =
+    new dl::image::ImagePreprocessor(
+        m_model,
+        {0, 0, 0},
+        {255, 255, 255}
+    );
+```
+
+**負責：**
+- Resize
+- Normalize
+- Color format 調整
+
+---
+
+### 5.2 Postprocess（YOLO 特有）
+
+```cpp
+m_postprocessor =
+    new dl::detect::yolo11PostProcessor(
+        m_model,
+        0.25,   // confidence threshold
+        0.7,    // NMS threshold
+        10,     // max boxes
+        {...}
+    );
+```
+
+**說明：**
+- Threshold 會直接影響「準不準」
+- 不只是模型權重的問題
+
+---
+
+## 六、模型檔案的生命週期（非常重要）
+
+### 6.1 訓練階段模型（PyTorch）
+
+- `.pt`
+- 僅用於訓練 / 評估
+- **不能部署到 MCU**
+
+---
+
+### 6.2 ONNX（中繼交換格式）
+
+**檔案範例：**
+- `yolo11n.onnx`
+- `yolo11n_320.onnx`
+
+**用途：**
+- 介於 Training 與 Deployment 之間
+
+---
+
+### 6.3 ONNX 生成方式
+
+**工具：**
+- PyTorch
+- YOLOv11
+- 自訂腳本：`export_onnx.py`
+
+**生成指令範例：**
+
+```bash
+python export_onnx.py   --weights yolo11n.pt   --imgsz 640   --output yolo11n.onnx
+```
+
+---
+
+### 6.4 espdl（最終部署格式）
+
+**檔案範例：**
+- `coco_detect_yolo11n_s8_v1.espdl`
+
+**特性：**
+- INT8 / Mixed precision
+- 記憶體佈局最佳化
+- 可直接由 esp-dl 載入
+
+---
+
+## 七、ONNX → espdl 的生成流程
+
+### 7.1 為什麼不能直接用 ONNX？
+
+- Float32
+- 記憶體需求過大
+- 不適合 MCU
+
+---
+
+### 7.2 espdl 生成工具
+
+- Espressif esp-dl toolchain
+- `pack_espdl_models.py`
+
+此步驟通常在 **build 階段自動完成**。
+
+---
+
+## 八、效能與解析度的取捨（640 vs 320）
+
+| 模型 | Input | 推論時間（P4） |
+|----|----|----|
+| YOLO11n | 640x640 | ~3 ms |
+| YOLO11n | 320x320 | ~0.6 ms |
+
+**教學重點：**
+- Edge AI 永遠在 trade-off
+- 不存在「又快又準又省」
+
+---
+
+## 九、常見錯誤與教學提醒
+
+- 認為模型越大越好
+- 忽略 Preprocess / Postprocess
+- 不釋放模型初始化資源
+
+---
+
+## 十、課堂練習（10 分鐘）
+
+請學生回答：
+
+1. 為什麼 espdl 才是部署格式？
+2. param_copy 對效能有什麼影響？
+3. 如果 AI 很慢，應該先檢查哪一段？
+
+---
+
+## 十一、本小時重點整理
+
+- Edge AI 的難點在部署
+- 模型有完整生命週期
+- esp-dl + espdl 是關鍵
+- P4 讓 YOLO 在 MCU 上變得實用
+
+---
+
+## 十二、Next Hour 預告
+
+**Hour 5：UI、事件、決策與儲存 — AIoT 的行為閉環**
