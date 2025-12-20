@@ -53,6 +53,17 @@ MCU Runtime
   - 輕量化
   - 適合量化
   - 可在 MCU 上即時推論
+  - 高精度
+  <img width="626" height="360" alt="image" src="https://github.com/user-attachments/assets/781daa19-bf48-4587-802e-ae23fc30f052" />
+  
+---
+  <img width="536" height="367" alt="image" src="https://github.com/user-attachments/assets/797ebe38-90c1-4b6b-9d50-0bc5d81d725f" />
+  
+---
+  <img width="833" height="437" alt="image" src="https://github.com/user-attachments/assets/8cfa71f4-33cb-4cd2-87e3-c0402cbaf667" />
+
+
+
 
 ---
 
