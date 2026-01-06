@@ -389,6 +389,9 @@ python3 -m esptool -p /dev/cu.usbmodem1101   --chip esp32p4   -b 115200 --no-stu
 可以判斷物體是否為行人 
 ![S__74481822](https://github.com/user-attachments/assets/76013c8e-90cc-4850-8302-0e58ac900ed9)
 
+###yolo手勢偵測 
+
+https://github.com/user-attachments/assets/c3c678b7-83f5-4a6b-b115-f57f6a580f58
 
 
 
